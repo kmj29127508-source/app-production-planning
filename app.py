@@ -817,9 +817,10 @@ with tab6:
     disp = pd.concat([disp, pd.DataFrame([sr])], ignore_index=True)
 
     def hl(s):
-        n = len(disp)
-        return ["font-weight:bold;background:#e8f5ee"]*n if s.name == n-1 else [""]*n
-
+    # n을 len(disp)가 아닌 len(s)로 바꾸어 열의 개수에 맞춥니다.
+    n_cols = len(s) 
+    # 마지막 행(합계 행)일 경우에만 강조 스타일 적용
+    return ["font-weight:bold;background:#e8f5ee"] * n_cols if s.name == len(disp)-1 else [""] * n_cols
     st.dataframe(
         disp.style.apply(hl, axis=1)
                   .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
