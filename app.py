@@ -658,38 +658,39 @@ with tab6:
 # ── TAB 7: 전략 비교 ─────────────────────────
 with tab7:
     if 'df' in st.session_state:
-        # 세션에 저장된 데이터를 가져와서 에러 방지
+        # 세션에서 최적화 결과 가져오기
         df_opt = st.session_state.df
         tc_opt = st.session_state.tc
-        meta_data = st.session_state.meta
+        M = st.session_state.meta
         
-        show_strategy_comparison(df_opt, tc_opt, meta_data, demand_list, 
-                                 c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
+        # NameError 방지: 사이드바에 입력된 최신 값을 직접 참조하거나 세션에서 가져옴
+        show_strategy_comparison(
+            df_opt, tc_opt, M, 
+            demand_list=demand_list, # 사이드바에서 정의된 리스트
+            c_W=c_W, c_O=c_O, c_H=c_H, c_L=c_L, 
+            c_I=c_I, c_S=c_S, c_P=c_P, c_C=c_C
+        )
     else:
         st.info("🚀 사이드바에서 '최적화 실행' 버튼을 먼저 눌러주세요.")
 
 # ── TAB 8: 계획 평가 및 권고 ─────────────────
 with tab8:
     if 'df' in st.session_state:
-        # 세션에 저장된 데이터를 가져와서 에러 방지
         df_opt = st.session_state.df
         tc_opt = st.session_state.tc
-        meta_data = st.session_state.meta
-
-        show_plan_evaluation(df_opt, tc_opt, meta_data, demand_list, 
-                             c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
+        M = st.session_state.meta
+        
+        show_plan_evaluation(
+            df_opt, tc_opt, M, 
+            demand_list=demand_list,
+            c_W=c_W, c_O=c_O, c_H=c_H, c_L=c_L, 
+            c_I=c_I, c_S=c_S, c_P=c_P, c_C=c_C
+        )
     else:
         st.info("🚀 사이드바에서 '최적화 실행' 버튼을 먼저 눌러주세요.")
 
 st.markdown("---")
-st.markdown('<div style="text-align:center;color:#888;font-size:.78rem;">🌿 원예장비 제조업체 총괄생산계획 시스템</div>', unsafe_allow_html=True)
-# 푸터 추가 (선택 사항)
-st.markdown("---")
-st.markdown('<div style="text-align:center;color:#888;">© 2026 Aggregate Production Planning Dashboard</div>', unsafe_allow_html=True)
-st.markdown("---")
-st.markdown("""<div style="text-align:center;color:#888;font-size:.78rem;padding:.8rem;">
-🌿 원예장비 제조업체 총괄생산계획 · 스마트제조_06 강의록 기반 Pyomo LP/IP · Chunghun Ha · Hongik University
-</div>""", unsafe_allow_html=True)
+st.markdown('<div style="text-align:center;color:#888;font-size:.78rem;">🌿 원예장비 제조업체 총괄생산계획 시스템 · Hongik Univ</div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════
