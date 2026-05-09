@@ -610,8 +610,16 @@ with tab6:
     disp = pd.concat([disp, pd.DataFrame([sr])], ignore_index=True)
 
     def hl(s):
-        n = len(disp)
-        return ["font-weight:bold;background:#e8f5ee"]*n if s.name==n-1 else [""]*n
+        # s는 현재 처리 중인 하나의 행(Series)입니다.
+        # 스타일 리스트의 길이는 행의 길이(즉, 열의 개수)와 같아야 합니다.
+        n_cols = len(s) 
+        n_rows = len(disp)
+        
+        # 마지막 행(합계 행)인지 판단하여 스타일 적용
+        if s.name == n_rows - 1:
+            return ["font-weight:bold; background:#e8f5ee"] * n_cols
+        else:
+            return [""] * n_cols
 
     st.dataframe(disp.style.apply(hl, axis=1)
                            .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
