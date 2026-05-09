@@ -928,6 +928,18 @@ $$W_t = W_{t-1} + H_t - L_t$$
 $$Z = \\sum [640W_t + 6O_t + 300H_t + 500L_t + 2I_t + 5S_t + 10P_t + 30C_t]$$
         """)
 
+def show_strategy_comparison(df, tc, M, demand_list, c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C):
+    st.markdown('<div class="sec">🆚 전략별 비용 비교</div>', unsafe_allow_html=True)
+    st.info("현재 최적화 결과와 다른 생산 전략(Chase, Level 등)을 비교하는 기능을 준비 중입니다.")
+    # 실제 비교 로직이 구현되기 전까지는 에러 방지를 위해 간단한 메시지만 띄웁니다.
+
+def show_plan_evaluation(df, tc, M, demand_list, c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C):
+    st.markdown('<div class="sec">💡 계획 평가 및 권고</div>', unsafe_allow_html=True)
+    st.write("최적화 결과에 따른 생산 관리 권고 사항입니다.")
+    if df["부족재고"].sum() > 0:
+        st.warning("부족재고가 발생하고 있습니다. 외주 비중을 높이거나 인력 충원을 검토하세요.")
+    else:
+        st.success("수요를 모두 충족하는 안정적인 계획입니다.")
 
 # ─────────────────────────────────────────────────────────────
 # 기존 탭에 신규 탭 2개 추가
