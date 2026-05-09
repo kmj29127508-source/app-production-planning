@@ -898,7 +898,8 @@ with tab6:
 
     def hl(s):
         n = len(disp)
-        return ["font-weight:bold;background:#e8f5ee"]*n if s.name==n-1 else [""]*n
+        style = "font-weight:bold;background:#e8f5ee" if s.name == n - 1 else ""
+        return [style] * len(s)
 
     st.dataframe(disp.style.apply(hl, axis=1)
                            .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
