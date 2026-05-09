@@ -16,7 +16,6 @@ import traceback
 # ─────────────────────────────────────────────
 st.set_page_config(
     page_title="원예장비 총괄생산계획",
-    page_icon="🌿",
     layout="wide",
     initial_sidebar_state="expanded",
 )
