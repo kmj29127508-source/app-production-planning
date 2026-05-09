@@ -654,16 +654,35 @@ with tab6:
         mime="text/csv",
         type="primary"
     )
+# --- 새로 교체할 코드 (650행 이후부터 파일 끝까지) ---
 # ── TAB 7: 전략 비교 ─────────────────────────
 with tab7:
-    show_strategy_comparison(df, tc, M, demand_list,
-                             c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
+    if 'df' in st.session_state:
+        # 세션에 저장된 데이터를 가져와서 에러 방지
+        df_opt = st.session_state.df
+        tc_opt = st.session_state.tc
+        meta_data = st.session_state.meta
+        
+        show_strategy_comparison(df_opt, tc_opt, meta_data, demand_list, 
+                                 c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
+    else:
+        st.info("🚀 사이드바에서 '최적화 실행' 버튼을 먼저 눌러주세요.")
 
 # ── TAB 8: 계획 평가 및 권고 ─────────────────
 with tab8:
-    show_plan_evaluation(df, tc, M, demand_list,
-                         c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
+    if 'df' in st.session_state:
+        # 세션에 저장된 데이터를 가져와서 에러 방지
+        df_opt = st.session_state.df
+        tc_opt = st.session_state.tc
+        meta_data = st.session_state.meta
 
+        show_plan_evaluation(df_opt, tc_opt, meta_data, demand_list, 
+                             c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
+    else:
+        st.info("🚀 사이드바에서 '최적화 실행' 버튼을 먼저 눌러주세요.")
+
+st.markdown("---")
+st.markdown('<div style="text-align:center;color:#888;font-size:.78rem;">🌿 원예장비 제조업체 총괄생산계획 시스템</div>', unsafe_allow_html=True)
 # 푸터 추가 (선택 사항)
 st.markdown("---")
 st.markdown('<div style="text-align:center;color:#888;">© 2026 Aggregate Production Planning Dashboard</div>', unsafe_allow_html=True)
