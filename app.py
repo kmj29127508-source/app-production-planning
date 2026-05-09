@@ -609,12 +609,22 @@ with tab6:
 목적함수: Z = Σ[{c_W:.0f}·W + {c_O:.1f}·O + {c_H:.0f}·H + {c_L:.0f}·L + {c_I:.1f}·I + {c_S:.1f}·S + {c_P:.1f}·P + {c_C:.1f}·C]
 제약: ①W_t=W_{{t-1}}+H-L  ②P_t≤{M['upw']:.1f}W+O/{M['std_time']}  ③재고균형  ④O_t≤{M['ot_limit']}W""")
 
-    disp = df.copy()
-    sr = {"월": "합계/평균"}
-    for col in disp.columns[1:]:
-        sr[col] = round(disp[col].sum(), 1)
-    sr["작업자수"] = round(disp["작업자수"].mean(), 1)
-    disp = pd.concat([disp, pd.DataFrame([sr])], ignore_index=True)
+    summary_values = {}
+    for col in disp.columns:
+        if col == "월":
+            summary_values[col] = "합계/평균"
+        elif col == "작업자수":
+            summary_values[col] = round(disp[col].mean(), 1)
+        else:
+            # 숫자인 경우에만 합산
+            if pd.api.types.is_numeric_dtype(disp[col]):
+                summary_values[col] = round(disp[col].sum(), 1)
+            else:
+                summary_values[col] = ""
+
+    # 새 행을 데이터프레임으로 만들어 기존 데이터와 합치기
+    summary_df = pd.DataFrame([summary_values])
+    disp = pd.concat([disp, summary_df], ignore_index=True)
 
     def hl(s):
         n = len(disp)
@@ -928,6 +938,4 @@ $$Z = \\sum [640W_t + 6O_t + 300H_t + 500L_t + 2I_t + 5S_t + 10P_t + 30C_t]$$
         """)
 
 
-# ─────────────────────────────────────────────────────────────
-# 기존 탭에 신규 탭 2개 추가
-# ─────────────────────────────────────────────────────────────
+
