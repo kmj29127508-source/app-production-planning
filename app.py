@@ -156,6 +156,293 @@ def run_optimization(demand, W0, I0, I_final,
         return None, f"모델 오류:\n{traceback.format_exc()}"
 
 
+
+# ═══════════════════════════════════════════════════════════════
+# 🆕 신규 기능: 전략 비교 + 계획 평가
+# ═══════════════════════════════════════════════════════════════
+
+def calc_strategy(demand, W0, I0, I_final, strategy, upw, std_time, ot_limit,
+                  c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C):
+    """단일 전략 수동 계산 (Pyomo 없이 빠르게)"""
+    TH = len(demand)
+    results = []
+    inv = I0
+    workforce = W0
+    total_cost = 0
+
+    for t in range(TH):
+        d = demand[t]
+
+        if strategy == "Level Production (평준화)":
+            avg_d = sum(demand) / TH
+            prod = min(upw * W0, avg_d + 500)
+            overtime = 0
+        elif strategy == "Chase Demand (추종)":
+            needed_workers = max(1, int(np.ceil(d / upw)))
+            workforce = needed_workers
+            prod = upw * workforce
+            overtime = 0
+        elif strategy == "Overtime-Only (초과근무)":
+            workforce = W0
+            base = upw * workforce
+            extra_needed = max(0, d - base - inv + I_final/TH)
+            overtime = min(extra_needed * std_time, ot_limit * workforce)
+            prod = base + overtime / std_time
+        else:  # Mixed (최적화) — 단순화 버전
+            workforce = max(1, int(W0 * 0.5))
+            prod = upw * workforce * 0.3
+            overtime = 0
+
+        end_inv = inv + prod - d
+        backorder = 0
+        if end_inv < 0:
+            backorder = -end_inv
+            end_inv = 0
+
+        hire = max(0, workforce - (W0 if t == 0 else results[-1]["작업자수"]))
+        fire = max(0, (W0 if t == 0 else results[-1]["작업자수"]) - workforce)
+
+        cost = (c_W*workforce + c_O*overtime + c_H*hire + c_L*fire
+                + c_I*end_inv + c_S*backorder + c_P*prod + c_C*0)
+        total_cost += cost
+
+        results.append({
+            "월": f"{t+1}월",
+            "수요": d,
+            "작업자수": round(workforce, 1),
+            "생산량": round(prod, 1),
+            "기말재고": round(end_inv, 1),
+            "부족재고": round(backorder, 1),
+            "초과시간": round(overtime, 1),
+            "외주량": 0,
+            "월비용": round(cost, 1),
+        })
+        inv = end_inv
+
+    df_s = pd.DataFrame(results)
+    total_backlog = df_s["부족재고"].sum()
+    svc = max(0, (1 - total_backlog / max(sum(demand), 1)) * 100)
+    return df_s, round(total_cost, 1), svc
+
+
+def show_strategy_comparison(df_opt, tc_opt, M, demand_list,
+                              c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C):
+    """전략 비교 탭 렌더링"""
+    st.markdown('<div class="sec">📊 4가지 생산 전략 비교</div>', unsafe_allow_html=True)
+
+    strategies = [
+        "Level Production (평준화)",
+        "Chase Demand (추종)",
+        "Overtime-Only (초과근무)",
+    ]
+
+    results_summary = []
+
+    # 최적화(LP) 결과 먼저 추가
+    total_backlog_opt = df_opt["부족재고"].sum()
+    svc_opt = max(0, (1 - total_backlog_opt / max(sum(demand_list), 1)) * 100)
+    results_summary.append({
+        "전략": "Pyomo LP (최적화)",
+        "총비용": tc_opt,
+        "총생산": round(df_opt["생산량"].sum() + df_opt["외주량"].sum(), 1),
+        "평균인력": round(df_opt["작업자수"].mean(), 1),
+        "총초과시간": round(df_opt["초과시간"].sum(), 1),
+        "총재고": round(df_opt["기말재고"].sum(), 1),
+        "총부재": round(total_backlog_opt, 1),
+        "서비스레벨%": round(svc_opt, 1),
+    })
+
+    strategy_dfs = {}
+    for st_name in strategies:
+        df_s, tc_s, svc_s = calc_strategy(
+            demand_list, M["W0"], M["I0"], M["I_final"], st_name,
+            M["upw"], M["std_time"], M["ot_limit"],
+            c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C
+        )
+        strategy_dfs[st_name] = (df_s, tc_s, svc_s)
+        results_summary.append({
+            "전략": st_name,
+            "총비용": tc_s,
+            "총생산": round(df_s["생산량"].sum(), 1),
+            "평균인력": round(df_s["작업자수"].mean(), 1),
+            "총초과시간": round(df_s["초과시간"].sum(), 1),
+            "총재고": round(df_s["기말재고"].sum(), 1),
+            "총부재": round(df_s["부족재고"].sum(), 1),
+            "서비스레벨%": round(svc_s, 1),
+        })
+
+    df_comp = pd.DataFrame(results_summary)
+
+    # 요약 테이블
+    st.markdown('<div class="sec">전략 비교 요약표</div>', unsafe_allow_html=True)
+
+    def highlight_best(df):
+        styles = pd.DataFrame("", index=df.index, columns=df.columns)
+        min_cost_idx = df["총비용"].idxmin()
+        max_svc_idx  = df["서비스레벨%"].idxmax()
+        styles.loc[min_cost_idx, "총비용"] = "background:#d1e7dd; font-weight:bold; color:#0a3622"
+        styles.loc[max_svc_idx,  "서비스레벨%"] = "background:#cff4fc; font-weight:bold"
+        return styles
+
+    st.dataframe(
+        df_comp.style.apply(highlight_best, axis=None)
+                     .format({"총비용": "{:,.0f}", "총생산": "{:,.0f}",
+                               "평균인력": "{:.1f}", "총초과시간": "{:,.0f}",
+                               "총재고": "{:,.0f}", "총부재": "{:,.0f}",
+                               "서비스레벨%": "{:.1f}"}),
+        use_container_width=True, hide_index=True
+    )
+
+    # 전략별 총비용 바차트
+    st.markdown('<div class="sec">전략별 총비용 비교</div>', unsafe_allow_html=True)
+    colors_bar = ["#2d7a4f", "#2563EB", "#f4a261", "#e63946"]
+    fig_bar = go.Figure()
+    for i, row in df_comp.iterrows():
+        fig_bar.add_trace(go.Bar(
+            x=[row["전략"]], y=[row["총비용"]],
+            name=row["전략"],
+            marker_color=colors_bar[i % len(colors_bar)],
+            text=f"{row['총비용']:,.0f}", textposition="outside",
+        ))
+    fig_bar.update_layout(
+        height=350, showlegend=False,
+        plot_bgcolor="rgba(240,247,244,0.5)", paper_bgcolor="white",
+        yaxis_title="총비용 (천원)", font=dict(family="Noto Sans KR"),
+        margin=dict(t=30, b=20),
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    # 서비스율 vs 비용 산점도
+    st.markdown('<div class="sec">서비스율 vs 총비용 트레이드오프</div>', unsafe_allow_html=True)
+    fig_scatter = go.Figure()
+    for i, row in df_comp.iterrows():
+        fig_scatter.add_trace(go.Scatter(
+            x=[row["서비스레벨%"]], y=[row["총비용"]],
+            mode="markers+text",
+            marker=dict(size=20, color=colors_bar[i % len(colors_bar)]),
+            text=[row["전략"].split("(")[0]],
+            textposition="top center",
+            name=row["전략"],
+        ))
+    fig_scatter.update_layout(
+        height=350,
+        plot_bgcolor="rgba(240,247,244,0.5)", paper_bgcolor="white",
+        xaxis_title="서비스율 (%)", yaxis_title="총비용 (천원)",
+        font=dict(family="Noto Sans KR"),
+        margin=dict(t=30, b=20),
+        legend=dict(orientation="h", y=-0.3),
+    )
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
+
+def show_plan_evaluation(df_opt, tc_opt, M, demand_list,
+                          c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C):
+    """계획 평가 및 권고 탭 렌더링"""
+    st.markdown('<div class="sec">💡 계획 평가 및 권고</div>', unsafe_allow_html=True)
+
+    total_backlog = df_opt["부족재고"].sum()
+    svc = max(0, (1 - total_backlog / max(sum(demand_list), 1)) * 100)
+    max_ot = M["ot_limit"] * df_opt["작업자수"].max()
+    actual_max_ot = df_opt["초과시간"].max()
+    hire_fire_total = df_opt["고용"].sum() + df_opt["해고"].sum()
+
+    # 전략별 계산
+    strategies = ["Level Production (평준화)", "Chase Demand (추종)", "Overtime-Only (초과근무)"]
+    all_results = [{"전략": "Pyomo LP (최적화)", "총비용": tc_opt,
+                    "서비스율": svc, "총부재": total_backlog,
+                    "고용해고합": hire_fire_total}]
+    for st_name in strategies:
+        df_s, tc_s, svc_s = calc_strategy(
+            demand_list, M["W0"], M["I0"], M["I_final"], st_name,
+            M["upw"], M["std_time"], M["ot_limit"],
+            c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C
+        )
+        hf = 0
+        if "고용" in df_s.columns:
+            hf = df_s.get("고용", pd.Series([0])).sum()
+        all_results.append({
+            "전략": st_name, "총비용": tc_s, "서비스율": svc_s,
+            "총부재": df_s["부족재고"].sum(), "고용해고합": hf,
+        })
+
+    best_cost_idx = min(range(len(all_results)), key=lambda i: all_results[i]["총비용"])
+    best_svc_idx  = max(range(len(all_results)), key=lambda i: all_results[i]["서비스율"])
+    best_strategy = all_results[best_cost_idx]["전략"]
+
+    # 경고 박스들
+    if total_backlog > 0:
+        shortage_strats = [r["전략"] for r in all_results if r["총부재"] > 0]
+        st.markdown(f'<div class="warn">⚠️ 부재고 발생 전략: {", ".join(shortage_strats)} — 고객 서비스 리스크 있음</div>', unsafe_allow_html=True)
+        st.markdown("")
+
+    if actual_max_ot >= max_ot * 0.9:
+        st.markdown(f'<div class="warn">⚠️ 초과근무 한계 도달 전략: Pyomo LP (최적화) — 운영 리스크 있음</div>', unsafe_allow_html=True)
+        st.markdown("")
+
+    hf_strats = [r["전략"] for r in all_results if r["고용해고합"] > 0]
+    if hf_strats:
+        st.markdown(f'<div style="background:#cff4fc;border:1px solid #9ec5fe;border-radius:7px;padding:.65rem 1rem;color:#055160;font-size:.88rem;">ℹ️ 인력 변동 전략: {", ".join(hf_strats)} — 인력 안정성 고려 필요</div>', unsafe_allow_html=True)
+        st.markdown("")
+
+    # 최종 권고
+    st.markdown('<div class="sec">📋 최종 권고</div>', unsafe_allow_html=True)
+
+    if all_results[best_cost_idx]["서비스율"] >= 95:
+        recommend_msg = f"<b>{best_strategy}</b> 전략을 권장합니다. 비용 효율성과 서비스율을 모두 고려한 최적 솔루션입니다."
+        rec_class = "ok"
+    else:
+        svc_best = all_results[best_svc_idx]["전략"]
+        recommend_msg = f"서비스율 우선: <b>{svc_best}</b> 전략 권장 (비용 최소화 원하면 <b>{best_strategy}</b> 고려)"
+        rec_class = "warn"
+
+    st.markdown(f'<div class="{rec_class}">{recommend_msg}</div>', unsafe_allow_html=True)
+    st.markdown("")
+
+    # KPI 4개
+    min_cost_val = min(r["총비용"] for r in all_results)
+    max_cost_val = max(r["총비용"] for r in all_results)
+    savings = max_cost_val - min_cost_val
+
+    k1, k2, k3, k4 = st.columns(4)
+    kpi_data2 = [
+        ("최저비용 전략",    best_strategy,              k1),
+        ("총비용 절감액",    f"{savings:,.0f} 천원",     k2),
+        ("최대 재고",        f"{df_opt['기말재고'].max():,.0f} 단위", k3),
+        ("총 부족재고",      f"{total_backlog:,.0f} 단위", k4),
+    ]
+    for lbl, val, col in kpi_data2:
+        with col:
+            st.markdown(f"""<div class="kpi">
+              <div class="kpi-lbl">{lbl}</div>
+              <div class="kpi-val" style="font-size:1rem;">{val}</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # 수식 설명
+    with st.expander("📐 수식 및 계산 로직 보기"):
+        st.markdown("""
+**주요 수식**
+
+**재고균형:**
+$$I_t = I_{t-1} + P_t + C_t - D_{t-1} - S_{t-1} + S_t$$
+
+**생산능력 제약:**
+$$P_t \\leq 40 \\cdot W_t + 0.25 \\cdot O_t$$
+
+**노동력 균형:**
+$$W_t = W_{t-1} + H_t - L_t$$
+
+**목적함수:**
+$$Z = \\sum [640W_t + 6O_t + 300H_t + 500L_t + 2I_t + 5S_t + 10P_t + 30C_t]$$
+        """)
+
+
+# ─────────────────────────────────────────────────────────────
+# 기존 탭에 신규 탭 2개 추가
+# ─────────────────────────────────────────────────────────────
+
+
 # ─────────────────────────────────────────────
 # 헤더
 # ─────────────────────────────────────────────
@@ -228,13 +515,6 @@ if run_btn:
             upw=upw, std_time=std_time, ot_limit=ot_limit,
             model_type=mt_code,
         )
-    if df_res is not None:
-        st.session_state["df"] = df_res
-        st.session_state["tc"] = tc_res
-        st.session_state["meta"] = {
-            "n": n_months, "mt": mt_code, "W0": W0, "I0": I0, 
-            "I_final": I_final, "upw": upw, "std_time": std_time, "ot_limit": ot_limit
-        }
     if df_res is None:
         st.error(f"❌ 최적화 실패:\n{tc_res}")
         st.stop()
@@ -605,97 +885,43 @@ with tab5:
 # ── TAB 6: 상세 결과표 ──────────────────────
 with tab6:
     st.markdown('<div class="sec">📋 월별 총괄생산계획 상세 결과</div>', unsafe_allow_html=True)
-    
-    # 1. 상단 요약 정보 (변수 참조 에러 방지를 위해 M에서 직접 호출)
     st.code(f"""모델: {M['mt']}  |  계획기간: {M['n']}개월  |  최소총비용: {tc:,.1f} 천원
 목적함수: Z = Σ[{c_W:.0f}·W + {c_O:.1f}·O + {c_H:.0f}·H + {c_L:.0f}·L + {c_I:.1f}·I + {c_S:.1f}·S + {c_P:.1f}·P + {c_C:.1f}·C]
-제약: ①인력균형  ②생산능력  ③재고균형  ④초과근무한도""")
+제약: ①W_t=W_{{t-1}}+H-L  ②P_t≤{M['upw']:.1f}W+O/{M['std_time']}  ③재고균형  ④O_t≤{M['ot_limit']}W""")
 
-    # 2. disp 변수 정의 (이게 반드시 for문보다 위에 있어야 NameError가 안 납니다)
     disp = df.copy()
+    sr = {"월": "합계/평균"}
+    for col in disp.columns[1:]:
+        sr[col] = round(disp[col].sum(), 1)
+    sr["작업자수"] = round(disp["작업자수"].mean(), 1)
+    disp = pd.concat([disp, pd.DataFrame([sr])], ignore_index=True)
 
-    # 3. 합계/평균 행 계산
-    summary_values = {}
-    for col in disp.columns:
-        if col == "월":
-            summary_values[col] = "합계/평균"
-        elif col == "작업자수":
-            summary_values[col] = round(disp[col].mean(), 1)
-        elif pd.api.types.is_numeric_dtype(disp[col]):
-            summary_values[col] = round(disp[col].sum(), 1)
-        else:
-            summary_values[col] = ""
-
-    # 4. 데이터 합치기
-    summary_df = pd.DataFrame([summary_values])
-    disp = pd.concat([disp, summary_df], ignore_index=True)
-
-    # 5. 스타일링 함수 수정 (ValueError 방지: 열의 개수만큼 리스트 반환)
     def hl(s):
-        # s는 행(Row) 시리즈입니다. 행 전체에 스타일을 입히려면 열 개수만큼 리스트를 줘야 합니다.
-        is_last = (s.name == len(disp) - 1)
-        return ["font-weight:bold; background-color:#e8f5ee" if is_last else "" for _ in s]
+        n = len(disp)
+        return ["font-weight:bold;background:#e8f5ee"]*n if s.name==n-1 else [""]*n
 
-    # 6. 표 출력
-    st.dataframe(
-        disp.style.apply(hl, axis=1)
-                  .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
-        use_container_width=True, 
-        hide_index=True, 
-        height=540
-    )
+    st.dataframe(disp.style.apply(hl, axis=1)
+                           .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
+                 use_container_width=True, hide_index=True, height=540)
 
-    # 7. 다운로드 버튼
-    csv_out = disp.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button(
-        label="📥 결과 CSV 다운로드",
-        data=csv_out,
-        file_name=f"APP_{M['n']}개월_{M['mt']}.csv",
-        mime="text/csv",
-        type="primary"
-    )
-# --- 새로 교체할 코드 (650행 이후부터 파일 끝까지) ---
+    csv = disp.to_csv(index=False, encoding="utf-8-sig")
+    st.download_button("📥 결과 CSV 다운로드", csv,
+                       f"APP_{M['n']}개월_{M['mt']}.csv", "text/csv", type="primary")
+
 # ── TAB 7: 전략 비교 ─────────────────────────
 with tab7:
-    if 'df' in st.session_state:
-        # 세션에서 최적화 결과 가져오기
-        df_opt = st.session_state.df
-        tc_opt = st.session_state.tc
-        M = st.session_state.meta
-        
-        # NameError 방지: 사이드바에 입력된 최신 값을 직접 참조하거나 세션에서 가져옴
-        show_strategy_comparison(
-            df_opt, tc_opt, M, 
-            demand_list=demand_list, # 사이드바에서 정의된 리스트
-            c_W=c_W, c_O=c_O, c_H=c_H, c_L=c_L, 
-            c_I=c_I, c_S=c_S, c_P=c_P, c_C=c_C
-        )
-    else:
-        st.info("🚀 사이드바에서 '최적화 실행' 버튼을 먼저 눌러주세요.")
+    show_strategy_comparison(df, tc, M, demand_list,
+                             c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
 
 # ── TAB 8: 계획 평가 및 권고 ─────────────────
 with tab8:
-    if 'df' in st.session_state:
-        df_opt = st.session_state.df
-        tc_opt = st.session_state.tc
-        M = st.session_state.meta
-        
-        show_plan_evaluation(
-            df_opt, tc_opt, M, 
-            demand_list=demand_list,
-            c_W=c_W, c_O=c_O, c_H=c_H, c_L=c_L, 
-            c_I=c_I, c_S=c_S, c_P=c_P, c_C=c_C
-        )
-    else:
-        st.info("🚀 사이드바에서 '최적화 실행' 버튼을 먼저 눌러주세요.")
+    show_plan_evaluation(df, tc, M, demand_list,
+                         c_W, c_O, c_H, c_L, c_I, c_S, c_P, c_C)
 
+# ─────────────────────────────────────────────
+# 푸터
+# ─────────────────────────────────────────────
 st.markdown("---")
-st.markdown('<div style="text-align:center;color:#888;font-size:.78rem;">🌿 원예장비 제조업체 총괄생산계획 시스템 · Hongik Univ</div>', unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════
-# 🆕 신규 기능: 전략 비교 + 계획 평가
-# ═══════════════════════════════════════════════════════════════
-
-
-
+st.markdown("""<div style="text-align:center;color:#888;font-size:.78rem;padding:.8rem;">
+🌿 원예장비 제조업체 총괄생산계획 · 스마트제조_06 강의록 기반 Pyomo LP/IP · Chunghun Ha · Hongik University
+</div>""", unsafe_allow_html=True)
