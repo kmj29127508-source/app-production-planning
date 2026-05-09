@@ -605,39 +605,55 @@ with tab5:
 # ── TAB 6: 상세 결과표 ──────────────────────
 with tab6:
     st.markdown('<div class="sec">📋 월별 총괄생산계획 상세 결과</div>', unsafe_allow_html=True)
+    
+    # 1. 상단 요약 정보 (변수 참조 에러 방지를 위해 M에서 직접 호출)
     st.code(f"""모델: {M['mt']}  |  계획기간: {M['n']}개월  |  최소총비용: {tc:,.1f} 천원
 목적함수: Z = Σ[{c_W:.0f}·W + {c_O:.1f}·O + {c_H:.0f}·H + {c_L:.0f}·L + {c_I:.1f}·I + {c_S:.1f}·S + {c_P:.1f}·P + {c_C:.1f}·C]
-제약: ①W_t=W_{{t-1}}+H-L  ②P_t≤{M['upw']:.1f}W+O/{M['std_time']}  ③재고균형  ④O_t≤{M['ot_limit']}W""")
+제약: ①인력균형  ②생산능력  ③재고균형  ④초과근무한도""")
 
+    # 2. disp 변수 정의 (이게 반드시 for문보다 위에 있어야 NameError가 안 납니다)
+    disp = df.copy()
+
+    # 3. 합계/평균 행 계산
     summary_values = {}
     for col in disp.columns:
         if col == "월":
             summary_values[col] = "합계/평균"
         elif col == "작업자수":
             summary_values[col] = round(disp[col].mean(), 1)
+        elif pd.api.types.is_numeric_dtype(disp[col]):
+            summary_values[col] = round(disp[col].sum(), 1)
         else:
-            # 숫자인 경우에만 합산
-            if pd.api.types.is_numeric_dtype(disp[col]):
-                summary_values[col] = round(disp[col].sum(), 1)
-            else:
-                summary_values[col] = ""
+            summary_values[col] = ""
 
-    # 새 행을 데이터프레임으로 만들어 기존 데이터와 합치기
+    # 4. 데이터 합치기
     summary_df = pd.DataFrame([summary_values])
     disp = pd.concat([disp, summary_df], ignore_index=True)
 
+    # 5. 스타일링 함수 수정 (ValueError 방지: 열의 개수만큼 리스트 반환)
     def hl(s):
-        n = len(disp)
-        return ["font-weight:bold;background:#e8f5ee"]*n if s.name==n-1 else [""]*n
+        # s는 행(Row) 시리즈입니다. 행 전체에 스타일을 입히려면 열 개수만큼 리스트를 줘야 합니다.
+        is_last = (s.name == len(disp) - 1)
+        return ["font-weight:bold; background-color:#e8f5ee" if is_last else "" for _ in s]
 
-    st.dataframe(disp.style.apply(hl, axis=1)
-                           .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
-                 use_container_width=True, hide_index=True, height=540)
+    # 6. 표 출력
+    st.dataframe(
+        disp.style.apply(hl, axis=1)
+                  .format({c: "{:,.1f}" for c in disp.columns if c != "월"}),
+        use_container_width=True, 
+        hide_index=True, 
+        height=540
+    )
 
-    csv = disp.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button("📥 결과 CSV 다운로드", csv,
-                       f"APP_{M['n']}개월_{M['mt']}.csv", "text/csv", type="primary")
-
+    # 7. 다운로드 버튼
+    csv_out = disp.to_csv(index=False, encoding="utf-8-sig")
+    st.download_button(
+        label="📥 결과 CSV 다운로드",
+        data=csv_out,
+        file_name=f"APP_{M['n']}개월_{M['mt']}.csv",
+        mime="text/csv",
+        type="primary"
+    )
 # ── TAB 7: 전략 비교 ─────────────────────────
 with tab7:
     show_strategy_comparison(df, tc, M, demand_list,
